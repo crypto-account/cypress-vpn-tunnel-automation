@@ -1,0 +1,23 @@
+{
+  "name": "cypress-vpn-tunnel-automation",
+  "version": "1.0.0",
+  "description": "Problem: Automated tests in CI/CD often fail to reach development environments hidden behind a VPN.",
+  "homepage": "https://github.com/crypto-account/cypress-vpn-tunnel-automation#readme",
+  "bugs": {
+    "url": "https://github.com/crypto-account/cypress-vpn-tunnel-automation/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crypto-account/cypress-vpn-tunnel-automation.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "cypress": "^15.8.1"
+  }
+}
