@@ -27,11 +27,11 @@ jobs:
       - run:
           name: "Instalacja zależności"
           command: npm install
-
+     
       - run:
-          name: "Uruchomienie testu sprawdzającego IP"
-          # Uruchamiamy dokładnie ten jeden plik testowy
-          command: npx cypress run --browser chrome --spec "cypress/e2e/vpn_test.cy.js"
+          name: "Uruchomienie testów Cypress"
+          # Używamy chrome-for-testing, który jest sugerowany przez Twój system
+          command: npx cypress run --browser chrome-for-testing --spec "cypress/e2e/vpn_check.cy.js"
 
 workflows:
   pipeline:
