@@ -1,0 +1,15 @@
+version: 2.1
+orbs:
+  cypress: cypress-io/cypress@6.0.0
+
+workflows:
+  pipeline:
+    jobs:
+      # ŚRODOWISKO PREPROD
+      - cypress/run:
+          name: "Testy na PREPROD"
+          install-browsers: true
+          cypress-command: npx cypress run --browser chrome --config baseUrl=https://admin-3.phq-preprod.click/
+          filters:
+            branches:
+              only: main
