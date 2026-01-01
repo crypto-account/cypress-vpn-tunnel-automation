@@ -9,6 +9,7 @@ describe('Weryfikacja połączenia VPN', () => {
       cy.log('Aktualny adres IP to: ' + currentIp);
       
       expect(currentIp).to.eq('219.100.37.64');
+      
     });
   });
 });
