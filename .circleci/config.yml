@@ -1,15 +1,42 @@
 version: 2.1
-orbs:
-  cypress: cypress-io/cypress@6.0.0
+
+jobs:
+  test_vpn_connection:
+    docker:
+      # Obraz z Node.js i gotowymi bibliotekami pod Chrome
+      - image: cimg/node:18.16.0-browsers
+    steps:
+      - checkout
+      
+      - run:
+          name: "Instalacja klienta i zestawienie tunelu VPN"
+          command: |
+            sudo apt-get update && sudo apt-get install -y openvpn
+            # Dekodujemy Twój plik .ovpn ze zmiennej VPN_CONFIG w ustawieniach CircleCI
+            echo "$VPN_CONFIG" | base64 --decode > client.ovpn
+            # Uruchamiamy VPN w tle (--daemon)
+            sudo openvpn --config client.ovpn --daemon
+            
+            echo "Czekam 20 sekund na pełne zestawienie połączenia..."
+            sleep 20
+            
+            # Szybki test w terminalu przed odpaleniem Cypressa
+            echo "Sprawdzam IP w terminalu:"
+            curl -s https://ifconfig.me/ip
+
+      - run:
+          name: "Instalacja zależności"
+          command: npm install
+
+      - run:
+          name: "Uruchomienie testu sprawdzającego IP"
+          # Uruchamiamy dokładnie ten jeden plik testowy
+          command: npx cypress run --browser chrome --spec "cypress/e2e/vpn_test.cy.js"
 
 workflows:
   pipeline:
     jobs:
-      # ŚRODOWISKO PREPROD
-      - cypress/run:
-          name: "Testy na PREPROD"
-          install-browsers: true
-          cypress-command: npx cypress run --browser chrome --config baseUrl=https://admin-3.phq-preprod.click/
+      - test_vpn_connection:
           filters:
             branches:
               only: main
