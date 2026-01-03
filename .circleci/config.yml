@@ -21,9 +21,16 @@ jobs:
             sleep 20
             
             # Szybki test w terminalu przed odpaleniem Cypressa
-            echo "Sprawdzam IP w terminalu:"
-            curl -s https://ifconfig.me/ip
+            echo "=== Interfaces ==="
+            ip a
 
+            echo "=== Routing ==="
+            ip route
+
+            echo "=== Test IP ==="
+            curl -s https://ifconfig.me/ip
+            
+        
       - run:
           name: "Instalacja zależności"
           command: npm install
