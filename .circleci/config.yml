@@ -2,25 +2,37 @@ version: 2.1
 
 jobs:
   test_vpn_connection:
-    docker:
-      # Obraz z Node.js i gotowymi bibliotekami pod Chrome
-      - image: cimg/node:18.16.0-browsers
+    machine:
+      image: ubuntu-2204:current   # 🔥 pełna maszyna, działa TUN/TAP
     steps:
       - checkout
-      
+
       - run:
-          name: "Instalacja klienta i zestawienie tunelu VPN"
+          name: Instalacja OpenVPN
           command: |
-            sudo apt-get update && sudo apt-get install -y openvpn
-            # Dekodujemy Twój plik .ovpn ze zmiennej VPN_CONFIG w ustawieniach CircleCI
+            sudo apt-get update
+            sudo apt-get install -y openvpn
+  
+      - run:
+          name: Start VPN
+          command: |
             echo "$VPN_CONFIG" | base64 --decode > client.ovpn
-            # Uruchamiamy VPN w tle (--daemon)
-            sudo openvpn --config client.ovpn --daemon
+
+            # 🔥 jeśli w Twoim .ovpn NIE ma redirect-gateway,
+            # możesz odkomentować poniższe:
+            # echo "redirect-gateway def1" >> client.ovpn
+
+            sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log
             
-            echo "Czekam 20 sekund na pełne zestawienie połączenia..."
+            echo "Czekam na ustanowienie tunelu..."
             sleep 20
-            
-            # Szybki test w terminalu przed odpaleniem Cypressa
+
+            echo "==== LOG OpenVPN ===="
+            tail -n 100 /tmp/ovpn.log || true
+
+      - run:
+          name: Weryfikacja tunelu
+          command: |
             echo "=== Interfaces ==="
             ip a
 
@@ -29,15 +41,16 @@ jobs:
 
             echo "=== Test IP ==="
             curl -s https://ifconfig.me/ip
-            
-        
+            echo
+
       - run:
-          name: "Instalacja zależności"
+          name: Instalacja zależności
           command: npm install
-     
+
       - run:
-          name: "Uruchomienie testów Cypress"
+          name: Uruchomienie testów Cypress
           command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
+
 
 workflows:
   pipeline:
