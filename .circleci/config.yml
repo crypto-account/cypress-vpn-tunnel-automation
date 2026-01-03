@@ -31,7 +31,7 @@ jobs:
       - run:
           name: "Uruchomienie testów Cypress"
           # Używamy chrome-for-testing, który jest sugerowany przez Twój system
-          command: npx cypress run --browser electron --spec "cypress/e2e/vpn_test.cy.js"
+          command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
 
 workflows:
   pipeline:
