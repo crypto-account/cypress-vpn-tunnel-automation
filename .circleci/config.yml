@@ -20,7 +20,7 @@ jobs:
 
             # 🔥 jeśli w Twoim .ovpn NIE ma redirect-gateway,
             # możesz odkomentować poniższe:
-            # echo "redirect-gateway def1" >> client.ovpn
+            echo "redirect-gateway def1" >> client.ovpn
 
             sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log
             
