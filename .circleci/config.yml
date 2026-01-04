@@ -24,8 +24,8 @@ jobs:
             # NIE pozwól aby grep zabił joba
             grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn || true
 
-            echo "$VPN_USER" > /tmp/creds
-            echo "$VPN_PASS" >> /tmp/creds
+            # echo "$VPN_USER" > /tmp/creds
+            # echo "$VPN_PASS" >> /tmp/creds
 
             sudo openvpn \
               --config client.ovpn \
