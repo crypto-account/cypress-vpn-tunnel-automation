@@ -46,13 +46,15 @@ jobs:
             # fi
 
             # Start VPN w tle
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
-              $( [ -f /tmp/vpn.login ] && echo "--auth-user-pass /tmp/vpn.login" )
-              sudo chmod 644 /tmp/openvpn.log
-
+            if [ -f /tmp/vpn.login ]; then
+              sudo openvpn --config /tmp/config.ovpn --auth-user-pass /tmp/vpn.login --daemon --log /tmp/openvpn.log
+            else
+              sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log
+            fi
+   
             # Czekanie na połączenie VPN
             counter=1
-            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 15 ]; do
+            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 20 ]; do
               ((counter++))
               echo "Waiting for VPN... ($counter)"
               sleep 2
@@ -64,7 +66,7 @@ jobs:
               exit 1
             else
               echo "VPN connected successfully."
-              echo "Public IP via VPN: $(curl --interface $VPN_IF -s https://checkip.amazonaws.com)"
+              curl -s https://checkip.amazonaws.com
             fi
 
       - run:
