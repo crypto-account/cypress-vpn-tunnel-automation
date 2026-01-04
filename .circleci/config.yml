@@ -8,12 +8,12 @@ jobs:
       - checkout
 
       - run:
-          name: Install Node.js and Cypress Dependencies
+          name: Use Node.js 20
           command: |
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            sudo apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev \
-                libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb
+            nvm install 20
+            nvm use 20
+            node -v
+            npm -v
 
       - run:
           name: Install OpenVPN
