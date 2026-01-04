@@ -1,44 +1,103 @@
 version: 2.1
-
+workflows:
+  btd:
+    jobs:
+      - build
 jobs:
-  test_vpn_connection:
+  build:
     machine:
-      image: ubuntu-2204:current
+      image: ubuntu-2004:202201-02
     steps:
-      - checkout
       - run:
           name: Install OpenVPN
           command: |
-            sudo apt-get update && sudo apt-get install -y openvpn curl
+            export DEBIAN_FRONTEND=noninteractive
+            source ~/.bashrc
+            sudo apt update
+            sudo apt install openvpn openvpn-systemd-resolved
+
       - run:
-          name: Prepare VPN config
+          name: Check IP before VPN connection
           command: |
-            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
-            echo "$vpn" > /tmp/creds
-            echo "$vpn" >> /tmp/creds
-            chmod 600 /tmp/creds
-            grep -q "^auth-user-pass" /tmp/config.ovpn || echo "auth-user-pass /tmp/creds" >> /tmp/config.ovpn
+            ip a
+            echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
+
       - run:
-          name: Start VPN
+          name: VPN Setup
           background: true
           command: |
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/ovpn.log --verb 3
-            sleep 15
-            cat /tmp/ovpn.log | tail -n 20
+            echo $VPN_CLIENT_CONFIG | base64 --decode > /tmp/config.ovpn
+
+            if grep -q auth-user-pass /tmp/config.ovpn; then
+              if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
+                echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
+                exit 1
+              else
+                printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
+              fi
+            fi
+
+            vpn_command=(sudo openvpn
+              --config /tmp/config.ovpn
+              --route 169.254.0.0 255.255.0.0 net_gateway
+              --script-security 2
+              --up /etc/openvpn/update-systemd-resolved --up-restart
+              --down /etc/openvpn/update-systemd-resolved --down-pre
+              --dhcp-option DOMAIN-ROUTE .)
+
+            if grep -q auth-user-pass /tmp/config.ovpn; then
+              vpn_command+=(--auth-user-pass /tmp/vpn.login)
+            fi
+
+            ET_phone_home=$(ss -Hnto state established '( sport = :ssh )' | head -n1 | awk '{ split($4, a, ":"); print a[1] }')
+            echo $ET_phone_home
+
+            if [ -n "$ET_phone_home" ]; then
+              vpn_command+=(--route $ET_phone_home 255.255.255.255 net_gateway)
+            fi
+
+            for IP in $(host runner.circleci.com | awk '{ print $4; }')
+              do
+                vpn_command+=(--route $IP 255.255.255.255 net_gateway)
+                echo $IP
+            done
+
+            for SYS_RES_DNS in $(systemd-resolve --status | grep 'DNS Servers'|awk '{print $3}')
+              do
+                vpn_command+=(--route $SYS_RES_DNS 255.255.255.255 net_gateway)
+                echo $SYS_RES_DNS
+            done
+
+            "${vpn_command[@]}" > /tmp/openvpn.log
+
       - run:
-          name: Check IP
+          name: Wait for the connection to be established and check IP
           command: |
-            echo "Current public IP:"
-            curl -s https://checkip.amazonaws.com
+            counter=1
+            until [ -f /tmp/openvpn.log ] && [ "$(grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 5 ]; do
+              ((counter++))
+              echo "Attempting to connect to VPN server..."
+              sleep 1;
+            done
+
+            if [ ! -f /tmp/openvpn.log ] || (! grep -iq "Initialization Sequence Completed" /tmp/openvpn.log); then
+              printf "\nUnable to establish connection within the allocated time ---> Giving up.\n"
+            else
+              printf "\nVPN connected\n"
+              printf "\nPublic IP is now %s\n" "$(curl -s http://checkip.amazonaws.com)"
+            fi
+
       - run:
-          name: Install Node.js and Cypress
+          name: Run commands in our infrastructure
           command: |
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            npm install
+            # A command
+            # Another command
+
       - run:
-          name: Run Cypress tests
-          command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
+          name: Disconnect from OpenVPN
+          command: |
+            sudo killall openvpn || true
+          when: always
 
 workflows:
   pipeline:
