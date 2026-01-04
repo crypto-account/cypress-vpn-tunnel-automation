@@ -1,72 +1,93 @@
 version: 2.1
-
+workflows:
+  btd:
+    jobs:
+      - build
 jobs:
-  test_vpn_connection:
+  build:
     machine:
-      image: ubuntu-2204:current
+      image: ubuntu-2004:202201-02
     steps:
-      - checkout
-
-      # 1. Instalacja OpenVPN i curl
       - run:
-          name: Instalacja OpenVPN i narzędzi
+          name: Install OpenVPN
           command: |
-            sudo apt-get update
-            sudo apt-get install -y openvpn curl iproute2
+            export DEBIAN_FRONTEND=noninteractive
+            source ~/.bashrc
+            sudo apt update && sudo apt install apt-transport-https
+            sudo wget https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub
+            sudo apt-key add openvpn-repo-pkg-key.pub            
+            sudo wget -O /etc/apt/sources.list.d/openvpn3.list https://swupdate.openvpn.net/community/openvpn3/repos/openvpn3-$(sed 's/UBUNTU_CODENAME=//;t;d' /etc/os-release).list
+            sudo apt update
+            sudo apt install openvpn openvpn-systemd-resolved
 
-      # 2. Utworzenie pliku creds i konfiguracji VPN
       - run:
-          name: Start VPN
+          name: Check IP before VPN connection
           command: |
-            echo "Tworzę plik konfiguracji VPN..."
-            echo "$VPN_CONFIG" | base64 --decode > client.ovpn
+            ip a
+            echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
-            echo "auth-nocache" >> client.ovpn
-            echo "redirect-gateway def1" >> client.ovpn
+      - run:
+          name: VPN Setup
+          background: true
+          command: |
+            echo $VPN_CLIENT_CONFIG | base64 --decode > /tmp/config.ovpn
 
-            grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
-
-            echo "$VPN_USER" > /tmp/creds
-            echo "$VPN_PASS" >> /tmp/creds
-            chmod 600 /tmp/creds
-
-            # Poprawa ostrzeżeń OpenVPN
-            grep -q "^data-ciphers" client.ovpn || echo "data-ciphers AES-256-GCM:AES-128-GCM:AES-128-CBC" >> client.ovpn
-            grep -q "^data-ciphers-fallback" client.ovpn || echo "data-ciphers-fallback AES-128-CBC" >> client.ovpn
-
-            # Uruchomienie OpenVPN w tle
-            sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log --verb 5
-
-            # Czekanie na tunel
-            echo "Czekam na ustanowienie tunelu VPN..."
-            timeout=90
-            while ! grep -q "Initialization Sequence Completed" /tmp/ovpn.log; do
-              sleep 5
-              timeout=$((timeout - 5))
-              if [ $timeout -le 0 ]; then
-                echo "VPN nie ustanowił tunelu w czasie"
-                cat /tmp/ovpn.log
-                exit 1
-              fi
+            ET_phone_home=$(ss -Hnto state established '( sport = :ssh )' | head -n1 | awk '{ split($4, a, ":"); print a[1] }')
+            ## In case you're using an image with Ubuntu < 20.04, replace the above line with:
+            ## ET_phone_home=$(ss -an | grep 'ESTAB .*:22' | head -n1 | awk '{ split($6, a, ":"); print a[1] }')
+            echo $ET_phone_home
+            
+            if [ -n "$ET_phone_home" ]; then
+              echo "route $ET_phone_home 255.255.255.255 net_gateway" >> /tmp/config.ovpn
+            fi
+            
+            echo "route 169.254.0.0 255.255.0.0 net_gateway" >> /tmp/config.ovpn
+            
+            for SYS_RES_DNS in $(systemd-resolve --status | grep 'DNS Servers'|awk '{print $3}')
+              do
+                echo "route $SYS_RES_DNS 255.255.0.0 net_gateway" >> /tmp/config.ovpn
+                echo $SYS_RES_DNS
             done
 
-            echo "Tunel VPN ustanowiony!"
-            tail -n 50 /tmp/ovpn.log
+            for IP in $(host runner.circleci.com | awk '{ print $4; }')
+              do 
+                echo "route $IP 255.255.255.255 net_gateway" >> /tmp/config.ovpn
+                echo $IP
+            done
 
-      # 3. Weryfikacja tunelu
+            # This will start the connection
+            sudo openvpn3 session-start --config /tmp/config.ovpn > /tmp/openvpn.log
+
       - run:
-          name: Test tunelu VPN
+          name: Wait for the connection to be established and check
           command: |
-            echo "=== Interfaces ==="
-            ip a
+            counter=1
+            until sudo openvpn3 sessions-list|grep "Client connected" || [ "$counter" -ge 5 ]; do
+              ((counter++))
+              echo "Attempting to connect to VPN server..."
+              sleep 1;
+            done
+            
+            if ( ! sudo openvpn3 sessions-list|grep "Client connected"); then
+              printf "\nUnable to establish connection within the allocated time ---> Giving up.\n"
+            else
+              printf "\nVPN connected\n"
+              printf "\nPublic IP is now %s\n" "$(curl -s https://checkip.amazonaws.com)"
+            fi
 
-            echo "=== Routing ==="
-            ip route
+      - run:
+          name: Run commands in our infrastructure
+          command: |
+            # A command
+            # Another command
 
-            echo "=== Test IP ==="
-            curl -s https://ifconfig.me/ip
-            echo
-
+      - run:
+          name: Disconnect from OpenVPN
+          command: |
+            SESSION_PATH=$(sudo openvpn3 sessions-list | grep Path | awk -F': ' '{print $2}')
+            echo $SESSION_PATH
+            sudo openvpn3 session-manage --session-path $SESSION_PATH --disconnect
+          when: always
       # 4. Instalacja zależności Cypress
       - run:
           name: Instalacja Node.js i Cypress
