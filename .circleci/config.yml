@@ -32,6 +32,8 @@ jobs:
               --daemon \
               --log /tmp/ovpn.log \
               --verb 5 || true
+            
+            sudo chmod 644 /tmp/ovpn.log
 
             echo "Czekam na ustanowienie tunelu..."
             sleep 30
