@@ -14,8 +14,8 @@ jobs:
           name: Prepare VPN config
           command: |
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
-            echo "$VPN_USER" > /tmp/creds
-            echo "$VPN_PASS" >> /tmp/creds
+            echo "$vpn" > /tmp/creds
+            echo "$vpn" >> /tmp/creds
             chmod 600 /tmp/creds
             grep -q "^auth-user-pass" /tmp/config.ovpn || echo "auth-user-pass /tmp/creds" >> /tmp/config.ovpn
       - run:
