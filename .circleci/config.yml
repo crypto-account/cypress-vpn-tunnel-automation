@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   build:
     machine:
-      ubuntu: 2004
+      image: ubuntu-2004:202201-02
     resource_class: large
     steps:
       - run:
@@ -44,23 +44,6 @@ jobs:
             if grep -q auth-user-pass /tmp/config.ovpn; then
               vpn_command+=(--auth-user-pass /tmp/vpn.login)
             fi
-
-            ET_phone_home=$(ss -Hnto state established '( sport = :ssh )' | head -n1 | awk '{ split($4, a, ":"); print a[1] }')
-            echo $ET_phone_home
-
-            if [ -n "$ET_phone_home" ]; then
-              vpn_command+=(--route $ET_phone_home 255.255.255.255 net_gateway)
-            fi
-
-            for IP in $(host runner.circleci.com | awk '{ print $4; }'); do
-              vpn_command+=(--route $IP 255.255.255.255 net_gateway)
-              echo $IP
-            done
-
-            for SYS_RES_DNS in $(systemd-resolve --status | grep 'DNS Servers'|awk '{print $3}'); do
-              vpn_command+=(--route $SYS_RES_DNS 255.255.255.255 net_gateway)
-              echo $SYS_RES_DNS
-            done
 
             # Uruchom VPN w tle
             "${vpn_command[@]}" > /tmp/openvpn.log 2>&1 &
