@@ -1,11 +1,9 @@
 version: 2.1
 
 jobs:
-  build:
-    # Zmieniamy na nowszy obraz i darmową klasę zasobów
-    machine:
-      image: ubuntu-2204:2023.07.2
-    resource_class: medium
+  test_vpn_connection:
+    docker:
+      - image: cimg/node:18.16.0-browsers
     
     steps:
       - checkout
