@@ -40,10 +40,10 @@ jobs:
 
 
             # Jeśli VPN wymaga loginu i hasła
-            if grep -q auth-user-pass /tmp/config.ovpn; then
-            printf "${VPN_USER}\\n${VPN_PASSWORD}" > /tmp/vpn.login
-            chmod 600 /tmp/vpn.login   # <-- tylko właściciel może czytać i pisać
-            fi
+            # if grep -q auth-user-pass /tmp/config.ovpn; then
+            # printf "${VPN_USER}\\n${VPN_PASSWORD}" > /tmp/vpn.login
+            # chmod 600 /tmp/vpn.login   # <-- tylko właściciel może czytać i pisać
+            # fi
 
             # Start VPN w tle
             sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
