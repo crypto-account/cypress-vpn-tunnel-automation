@@ -64,7 +64,7 @@ jobs:
               exit 1
             else
               echo "VPN connected successfully."
-              echo "Public IP is now: $(curl -s checkip.amazonaws.com)"
+              echo "Public IP via VPN: $(curl --interface $VPN_IF -s https://checkip.amazonaws.com)"
             fi
 
       - run:
