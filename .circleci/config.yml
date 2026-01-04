@@ -16,9 +16,9 @@ jobs:
             npm -v
 
       - run:
-          name: Install Cypress
+          name: Install Cypress 
           command: |
-            npm install cypress
+            npm install cypress 
 
       - run:
           name: Install OpenVPN
@@ -59,7 +59,10 @@ jobs:
             curl -s https://checkip.amazonaws.com || true
           fi
         
+          echo "Ensure OpenVPN is running:"
+          ps aux | grep openvpn
 
+          exit 0
 
       - run:
           name: Run Cypress Tests
