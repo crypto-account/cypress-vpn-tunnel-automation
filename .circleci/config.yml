@@ -12,23 +12,36 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y openvpn
-  
       - run:
-          name: Start VPN
-          command: |
-            echo "$VPN_CONFIG" | base64 --decode > client.ovpn
+        name: Start VPN
+        command: |
+          echo "$VPN_CONFIG" | base64 --decode > client.ovpn
 
-            # 🔥 jeśli w Twoim .ovpn NIE ma redirect-gateway,
-            # możesz odkomentować poniższe:
-            echo "redirect-gateway def1" >> client.ovpn
+          # jeśli ten wpis już jest w .ovpn — zostaw, ale nie zaszkodzi dopisać
+          echo "redirect-gateway def1" >> client.ovpn
+          echo "auth-nocache" >> client.ovpn
 
-            sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log
-            
-            echo "Czekam na ustanowienie tunelu..."
-            sleep 20
+          # jeśli Twój plik ma zakomentowane auth-user-pass, MUSI BYĆ aktywne:
+          grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
 
-            echo "==== LOG OpenVPN ===="
-            tail -n 100 /tmp/ovpn.log || true
+          # jeżeli Twój VPN wymaga login/hasło – ustaw zmienne CI:
+          # VPN_USER
+          # VPN_PASS
+          echo "$VPN_USER" > /tmp/creds
+          echo "$VPN_PASS" >> /tmp/creds
+
+          sudo openvpn \
+          --config client.ovpn \
+          --daemon \
+          --log /tmp/ovpn.log \
+          --verb 4
+
+          echo "Czekam na ustanowienie tunelu..."
+          sleep 25
+
+          echo "==== LOG OpenVPN ===="
+          tail -n 200 /tmp/ovpn.log || true
+
 
       - run:
           name: Weryfikacja tunelu
