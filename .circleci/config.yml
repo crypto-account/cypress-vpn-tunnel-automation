@@ -46,28 +46,27 @@ jobs:
             # fi
 
             # Start VPN w tle
-            if [ -f /tmp/vpn.login ]; then
-              sudo openvpn --config /tmp/config.ovpn --auth-user-pass /tmp/vpn.login --daemon --log /tmp/openvpn.log
-            else
-              sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log
-            fi
-   
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log
+
+            # nadaj prawa do loga
+            sudo chmod 644 /tmp/openvpn.log 
+
             # Czekanie na połączenie VPN
             counter=1
-            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 20 ]; do
-              ((counter++))
-              echo "Waiting for VPN... ($counter)"
-              sleep 2
+            until sudo grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 15 ]; do
+            ((counter++))
+            echo "Waiting for VPN... ($counter)"
+            sleep 2
             done
 
-            if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-              echo "VPN Log Output:"
-              cat /tmp/openvpn.log
-              exit 1
+            if ! sudo grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+            echo "VPN Log Output:"
+            sudo cat /tmp/openvpn.log
+            exit 1
             else
-              echo "VPN connected successfully."
-              curl -s https://checkip.amazonaws.com
+            echo "VPN connected successfully."
             fi
+
 
       - run:
           name: Run Cypress Tests
