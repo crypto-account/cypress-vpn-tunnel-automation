@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   test_vpn_connection:
     machine:
-      image: ubuntu-2204:current   # 🔥 pełna maszyna, działa TUN/TAP
+      image: ubuntu-2204:current
     steps:
       - checkout
 
@@ -12,46 +12,39 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y openvpn
+
       - run:
-        name: Start VPN
-        command: |
-          echo "$VPN_CONFIG" | base64 --decode > client.ovpn
+          name: Start VPN
+          command: |
+            echo "$VPN_CONFIG" | base64 --decode > client.ovpn
 
-          # jeśli ten wpis już jest w .ovpn — zostaw, ale nie zaszkodzi dopisać
-          echo "redirect-gateway def1" >> client.ovpn
-          echo "auth-nocache" >> client.ovpn
+            echo "redirect-gateway def1" >> client.ovpn
+            echo "auth-nocache" >> client.ovpn
 
-          # jeśli Twój plik ma zakomentowane auth-user-pass, MUSI BYĆ aktywne:
-          grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
+            grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
 
-          # jeżeli Twój VPN wymaga login/hasło – ustaw zmienne CI:
-          # VPN_USER
-          # VPN_PASS
-          echo "$VPN_USER" > /tmp/creds
-          echo "$VPN_PASS" >> /tmp/creds
+            echo "$VPN_USER" > /tmp/creds
+            echo "$VPN_PASS" >> /tmp/creds
 
-          sudo openvpn \
-          --config client.ovpn \
-          --daemon \
-          --log /tmp/ovpn.log \
-          --verb 4
+            sudo openvpn \
+              --config client.ovpn \
+              --daemon \
+              --log /tmp/ovpn.log \
+              --verb 4
 
-          echo "Czekam na ustanowienie tunelu..."
-          sleep 25
+            echo "Czekam na ustanowienie tunelu..."
+            sleep 25
 
-          echo "==== LOG OpenVPN ===="
-          tail -n 200 /tmp/ovpn.log || true
-
+            echo "==== LOG OpenVPN ===="
+            tail -n 200 /tmp/ovpn.log || true
 
       - run:
           name: Weryfikacja tunelu
           command: |
             echo "=== Interfaces ==="
             ip a
-
             echo "=== Routing ==="
             ip route
-
             echo "=== Test IP ==="
             curl -s https://ifconfig.me/ip
             echo
@@ -63,7 +56,6 @@ jobs:
       - run:
           name: Uruchomienie testów Cypress
           command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
-
 
 workflows:
   pipeline:
