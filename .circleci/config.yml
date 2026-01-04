@@ -74,10 +74,3 @@ jobs:
             sudo killall openvpn || true
           when: always
 
-workflows:
-  pipeline:
-    jobs:
-      - build:
-          filters:
-            branches:
-              only: main
