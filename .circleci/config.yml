@@ -98,8 +98,6 @@ jobs:
           command: |
             sudo killall openvpn || true
           when: always
-
-workflows:
   pipeline:
     jobs:
       - test_vpn_connection:
