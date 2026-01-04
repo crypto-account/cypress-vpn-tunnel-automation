@@ -6,7 +6,7 @@ jobs:
     resource_class: large
     steps:
       - checkout
-
+      
       - run:
           name: Use Node.js 20
           command: |
@@ -14,6 +14,11 @@ jobs:
             nvm use 20
             node -v
             npm -v
+
+      - run:
+          name: Install Cypress
+          command: |
+            npm install cypress
 
       - run:
           name: Install OpenVPN
@@ -64,7 +69,7 @@ jobs:
           name: Run Cypress Tests
           command: |
             npm install
-            npx cypress run --browser electron --spec "cypress/e2e/vpn_check.cy.js"
+            npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
 
       - run:
           name: Disconnect from OpenVPN
