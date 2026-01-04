@@ -12,27 +12,55 @@ jobs:
           command: |
             sudo apt-get update
             sudo apt-get install -y openvpn
-      - run:
-         name: Start VPN
-         command: |
+
+            - run:
+          name: Start VPN
+          command: |
+            echo "Tworzę plik konfiguracji VPN..."
             echo "$VPN_CONFIG" | base64 --decode > client.ovpn
+
+            # Dodaj linie zabezpieczające
             echo "auth-nocache" >> client.ovpn
             echo "redirect-gateway def1" >> client.ovpn
+
+            # Jeżeli nie ma auth-user-pass, dodaj
             grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn || true
 
+            # Tworzymy plik z loginem i hasłem
             echo "$VPN_USER" > /tmp/creds
             echo "$VPN_PASS" >> /tmp/creds
             chmod 600 /tmp/creds
 
-            echo "Uruchamiam OpenVPN..."
-            sudo openvpn --config client.ovpn --verb 5 &
-            VPN_PID=$!
+            # Poprawienie ostrzeżenia o cipher
+            grep -q "^data-ciphers" client.ovpn || echo "data-ciphers AES-256-GCM:AES-128-GCM:AES-128-CBC" >> client.ovpn
+            grep -q "^data-ciphers-fallback" client.ovpn || echo "data-ciphers-fallback AES-128-CBC" >> client.ovpn
 
-            echo "Czekam 30 sekund na ustanowienie tunelu..."
-            sleep 30
+            # Uruchamiamy OpenVPN w tle
+            sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log --verb 5 || true
+            sudo chmod 644 /tmp/ovpn.log
 
-            echo "==== LOG OpenVPN (ASCII cleaned) ===="
-            tr < /tmp/ovpn.log -d '\000' | tail -n 200 || true
+            echo "Czekam na ustanowienie tunelu VPN..."
+            # Pętla czekająca na pełne ustanowienie tunelu
+            timeout=90
+            while ! grep -q "Initialization Sequence Completed" /tmp/ovpn.log; do
+              sleep 5
+              timeout=$((timeout - 5))
+              if [ $timeout -le 0 ]; then
+                echo "VPN nie ustanowił tunelu w czasie"
+                cat /tmp/ovpn.log
+                exit 1
+              fi
+            done
+
+            echo "Tunel VPN ustanowiony!"
+            echo "==== Ostatnie 50 linii logu OpenVPN ===="
+            tail -n 50 /tmp/ovpn.log
+
+            # Testowanie połączenia z hostem VPN (przykładowy adres hosta wewnętrznego)
+            echo "Sprawdzam dostępność hosta VPN..."
+            ping -c 3 10.8.0.1 || echo "Nie udało się pingować hosta"
+            curl -v http://10.8.0.1:8080 || echo "Nie udało się pobrać strony z hosta VPN"
+
 
       - run:
           name: Weryfikacja tunelu
