@@ -2,9 +2,23 @@ version: 2.1
 
 jobs:
   build:
+    # Zmieniamy na nowszy obraz i darmową klasę zasobów
     machine:
-      image: ubuntu-2004:202201-01
+      image: ubuntu-2204:2023.07.2
+    resource_class: medium
+    
     steps:
+      - checkout
+
+      - run:
+          name: Install Node.js and Cypress Dependencies
+          command: |
+            # Instalacja Node.js (potrzebne do Cypressa)
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            # Zależności systemowe dla Cypress
+            sudo apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb
+
       - run:
           name: Install OpenVPN
           command: |
@@ -15,50 +29,34 @@ jobs:
       - run:
           name: Check IP before VPN connection
           command: |
-            ip a
             echo "Public IP before VPN connection is $(curl -s checkip.amazonaws.com)"
 
       - run:
           name: VPN Setup and Connect
           command: |
-            echo $VPN_CLIENT_CONFIG | base64 --decode > /tmp/config.ovpn
+            # Używamy Twojej zmiennej VPN_CLIENT_CONFIG
+            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
             if grep -q auth-user-pass /tmp/config.ovpn; then
-              if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
-                echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
-                exit 1
-              else
-                printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
-              fi
+                # Sprawdzamy czy zmienne istnieją (używamy nazw z Twojego skryptu)
+                printf "${VPN_USER}\\n${VPN_PASSWORD}" > /tmp/vpn.login
             fi
 
-            vpn_command=(sudo openvpn
-              --config /tmp/config.ovpn
-              --route 169.254.0.0 255.255.0.0 net_gateway
-              --script-security 2
-              --up /etc/openvpn/update-systemd-resolved --up-restart
-              --down /etc/openvpn/update-systemd-resolved --down-pre
-              --dhcp-option DOMAIN-ROUTE .)
+            # Start VPN
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
+              --auth-user-pass /tmp/vpn.login || sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log
 
-            if grep -q auth-user-pass /tmp/config.ovpn; then
-              vpn_command+=(--auth-user-pass /tmp/vpn.login)
-            fi
-
-            # Uruchom VPN w tle
-            "${vpn_command[@]}" > /tmp/openvpn.log 2>&1 &
-            VPN_PID=$!
-
-            # Czekaj na połączenie
+            # Czekaj na połączenie (zwiększony limit do 30 sek)
             counter=1
-            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 10 ]; do
+            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 15 ]; do
               ((counter++))
-              echo "Attempting to connect to VPN server..."
+              echo "Waiting for VPN... ($counter)"
               sleep 2
             done
 
             if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-              echo "Unable to establish VPN connection. Exiting."
-              kill $VPN_PID || true
+              echo "VPN Log Output:"
+              cat /tmp/openvpn.log
               exit 1
             else
               echo "VPN connected successfully."
@@ -66,10 +64,11 @@ jobs:
             fi
 
       - run:
-          name: Run commands in our infrastructure
+          name: Run Cypress Tests
           command: |
-            # Tutaj wpisz swoje komendy
-            echo "Running infrastructure commands..."
+            npm install
+            # Uruchamiamy Twój test z poprzednich kroków
+            npx cypress run --browser electron --spec "cypress/e2e/vpn_check.cy.js"
 
       - run:
           name: Disconnect from OpenVPN
