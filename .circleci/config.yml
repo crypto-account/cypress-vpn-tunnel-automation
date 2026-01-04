@@ -41,6 +41,7 @@ jobs:
             # Start VPN w tle
             sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
               $( [ -f /tmp/vpn.login ] && echo "--auth-user-pass /tmp/vpn.login" )
+              sudo chmod 644 /tmp/openvpn.log
 
             # Czekanie na połączenie VPN
             counter=1
