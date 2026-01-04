@@ -6,78 +6,38 @@ jobs:
       image: ubuntu-2204:current
     steps:
       - checkout
-
-      # 1. Instalacja OpenVPN i curl
       - run:
-          name: Instalacja OpenVPN i narzędzi
+          name: Install OpenVPN
           command: |
-            sudo apt-get update
-            sudo apt-get install -y openvpn curl iproute2
-
-      # 2. Utworzenie pliku creds i konfiguracji VPN
+            sudo apt-get update && sudo apt-get install -y openvpn curl
       - run:
-          name: Start VPN
+          name: Prepare VPN config
           command: |
-            echo "Tworzę plik konfiguracji VPN..."
-            echo "$VPN_CONFIG" | base64 --decode > client.ovpn
-
-            echo "auth-nocache" >> client.ovpn
-            echo "redirect-gateway def1" >> client.ovpn
-
-            grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
-
+            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
             echo "$VPN_USER" > /tmp/creds
             echo "$VPN_PASS" >> /tmp/creds
             chmod 600 /tmp/creds
-
-            # Poprawa ostrzeżeń OpenVPN
-            grep -q "^data-ciphers" client.ovpn || echo "data-ciphers AES-256-GCM:AES-128-GCM:AES-128-CBC" >> client.ovpn
-            grep -q "^data-ciphers-fallback" client.ovpn || echo "data-ciphers-fallback AES-128-CBC" >> client.ovpn
-
-            # Uruchomienie OpenVPN w tle
-            sudo openvpn --config client.ovpn --daemon --log /tmp/ovpn.log --verb 5
-
-            # Czekanie na tunel
-            echo "Czekam na ustanowienie tunelu VPN..."
-            timeout=90
-            while ! grep -q "Initialization Sequence Completed" /tmp/ovpn.log; do
-              sleep 5
-              timeout=$((timeout - 5))
-              if [ $timeout -le 0 ]; then
-                echo "VPN nie ustanowił tunelu w czasie"
-                cat /tmp/ovpn.log
-                exit 1
-              fi
-            done
-
-            echo "Tunel VPN ustanowiony!"
-            tail -n 50 /tmp/ovpn.log
-
-      # 3. Weryfikacja tunelu
+            grep -q "^auth-user-pass" /tmp/config.ovpn || echo "auth-user-pass /tmp/creds" >> /tmp/config.ovpn
       - run:
-          name: Test tunelu VPN
+          name: Start VPN
+          background: true
           command: |
-            echo "=== Interfaces ==="
-            ip a
-
-            echo "=== Routing ==="
-            ip route
-
-            echo "=== Test IP ==="
-            curl -s https://ifconfig.me/ip
-            echo
-
-      # 4. Instalacja zależności Cypress
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/ovpn.log --verb 3
+            sleep 15
+            cat /tmp/ovpn.log | tail -n 20
       - run:
-          name: Instalacja Node.js i Cypress
+          name: Check IP
+          command: |
+            echo "Current public IP:"
+            curl -s https://checkip.amazonaws.com
+      - run:
+          name: Install Node.js and Cypress
           command: |
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
             sudo apt-get install -y nodejs
             npm install
-
-      # 5. Uruchomienie testów Cypress
       - run:
-          name: Uruchomienie testów Cypress
+          name: Run Cypress tests
           command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
 
 workflows:
