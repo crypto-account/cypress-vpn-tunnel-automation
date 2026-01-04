@@ -18,10 +18,11 @@ jobs:
           command: |
             echo "$VPN_CONFIG" | base64 --decode > client.ovpn
 
-            echo "redirect-gateway def1" >> client.ovpn
             echo "auth-nocache" >> client.ovpn
+            echo "redirect-gateway def1" >> client.ovpn
 
-            grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn
+            # NIE pozwól aby grep zabił joba
+            grep -q "^auth-user-pass" client.ovpn || echo "auth-user-pass /tmp/creds" >> client.ovpn || true
 
             echo "$VPN_USER" > /tmp/creds
             echo "$VPN_PASS" >> /tmp/creds
@@ -30,21 +31,23 @@ jobs:
               --config client.ovpn \
               --daemon \
               --log /tmp/ovpn.log \
-              --verb 4
+              --verb 5 || true
 
             echo "Czekam na ustanowienie tunelu..."
-            sleep 25
+            sleep 30
 
-            echo "==== LOG OpenVPN ===="
-            tail -n 200 /tmp/ovpn.log || true
+            echo "==== LOG OpenVPN (ASCII cleaned) ===="
+            tr < /tmp/ovpn.log -d '\000' | tail -n 200 || true
 
       - run:
           name: Weryfikacja tunelu
           command: |
             echo "=== Interfaces ==="
             ip a
+
             echo "=== Routing ==="
             ip route
+
             echo "=== Test IP ==="
             curl -s https://ifconfig.me/ip
             echo
@@ -56,6 +59,7 @@ jobs:
       - run:
           name: Uruchomienie testów Cypress
           command: npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
+
 
 workflows:
   pipeline:
