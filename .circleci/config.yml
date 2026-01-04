@@ -2,19 +2,16 @@ version: 2.1
 
 jobs:
   test_vpn_connection:
-    docker:
-      - image: cimg/node:18.16.0-browsers
-    
+    machine: true   # pełna maszyna VM, nie kontener Docker
+    resource_class: large
     steps:
       - checkout
 
       - run:
           name: Install Node.js and Cypress Dependencies
           command: |
-            # Instalacja Node.js (potrzebne do Cypressa)
             curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt-get install -y nodejs
-            # Zależności systemowe dla Cypress
             sudo apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb
 
       - run:
@@ -32,19 +29,19 @@ jobs:
       - run:
           name: VPN Setup and Connect
           command: |
-            # Używamy Twojej zmiennej VPN_CLIENT_CONFIG
+            # Dekodowanie konfiguracji VPN z base64
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
+            # Jeśli VPN wymaga loginu i hasła
             if grep -q auth-user-pass /tmp/config.ovpn; then
-                # Sprawdzamy czy zmienne istnieją (używamy nazw z Twojego skryptu)
-                printf "${VPN_USER}\\n${VPN_PASSWORD}" > /tmp/vpn.login
+              printf "${VPN_USER}\\n${VPN_PASSWORD}" > /tmp/vpn.login
             fi
 
-            # Start VPN
+            # Start VPN w tle
             sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
-              --auth-user-pass /tmp/vpn.login || sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log
+              $( [ -f /tmp/vpn.login ] && echo "--auth-user-pass /tmp/vpn.login" )
 
-            # Czekaj na połączenie (zwiększony limit do 30 sek)
+            # Czekanie na połączenie VPN
             counter=1
             until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 15 ]; do
               ((counter++))
@@ -65,7 +62,6 @@ jobs:
           name: Run Cypress Tests
           command: |
             npm install
-            # Uruchamiamy Twój test z poprzednich kroków
             npx cypress run --browser electron --spec "cypress/e2e/vpn_check.cy.js"
 
       - run:
@@ -74,3 +70,11 @@ jobs:
             sudo killall openvpn || true
           when: always
 
+workflows:
+  version: 2
+  btd:
+    jobs:
+      - test_vpn_connection:
+          filters:
+            branches:
+              only: main
