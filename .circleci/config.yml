@@ -6,14 +6,26 @@ jobs:
     resource_class: large
     steps:
       - checkout
-
+      
       - run:
-          name: Use Node.js 20
-          command: |
-            nvm install 20
-            nvm use 20
-            node -v
-            npm -v
+    name: Install Node.js 20 (NVM) for Cypress
+    command: |
+      export NVM_DIR="$HOME/.nvm"
+      mkdir -p "$NVM_DIR"
+
+      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+
+      source "$NVM_DIR/nvm.sh"
+      nvm install 20
+      nvm alias default 20
+      nvm use 20
+
+      echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc
+      echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ~/.bashrc
+
+      node -v
+      npm -v
+
 
       - run:
           name: Install OpenVPN
@@ -64,7 +76,7 @@ jobs:
           name: Run Cypress Tests
           command: |
             npm install
-            npx cypress run --browser electron --spec "cypress/e2e/vpn_check.cy.js"
+            npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
 
       - run:
           name: Disconnect from OpenVPN
