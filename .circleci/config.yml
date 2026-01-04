@@ -33,32 +33,32 @@ jobs:
             echo "Public IP before VPN connection is $(curl -s checkip.amazonaws.com)"
 
       - run:
-    name: VPN Setup and Connect
-    command: |
-      echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
+         name: VPN Setup and Connect
+         command: |
+          echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
-      sudo openvpn --config /tmp/config.ovpn \
-        --daemon \
-        --log /tmp/openvpn.log
+          sudo openvpn --config /tmp/config.ovpn \
+            --daemon \
+            --log /tmp/openvpn.log
 
-      sudo chmod 644 /tmp/openvpn.log
+          sudo chmod 644 /tmp/openvpn.log
 
-      counter=1
-      until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 20 ]; do
-        echo "Waiting for VPN... ($counter)"
-        counter=$((counter+1))
-        sleep 2
-      done
+          counter=1
+          until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 20 ]; do
+            echo "Waiting for VPN... ($counter)"
+            counter=$((counter+1))
+            sleep 2
+          done
 
-      if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-        echo "VPN failed!"
-        cat /tmp/openvpn.log
-        exit 1
-      else
-        echo "VPN connected successfully."
-        curl -s https://checkip.amazonaws.com || true
-      fi
-      
+          if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+            echo "VPN failed!"
+            cat /tmp/openvpn.log
+            exit 1
+          else
+            echo "VPN connected successfully."
+            curl -s https://checkip.amazonaws.com || true
+          fi
+        
 
 
       - run:
