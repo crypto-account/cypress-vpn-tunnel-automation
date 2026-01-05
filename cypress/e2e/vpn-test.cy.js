@@ -1,7 +1,7 @@
 describe('Weryfikacja połączenia VPN', () => {
   it('vpn test', () => {
    
-    cy.visit('public-vpn-61.opengw.net');
+    cy.visit('https://public-vpn-217.opengw.net');
 
     });
   });
