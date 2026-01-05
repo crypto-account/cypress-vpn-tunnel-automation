@@ -40,9 +40,9 @@ jobs:
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
             # Login + Hasło
-            echo "${VPN_USER}" > /tmp/vpn.login
-            echo "${VPN_PASSWORD}" >> /tmp/vpn.login
-            chmod 600 /tmp/vpn.login
+            #echo "${VPN_USER}" > /tmp/vpn.login
+            #echo "${VPN_PASSWORD}" >> /tmp/vpn.login
+            #chmod 600 /tmp/vpn.login
 
             # Uruchom VPN
             sudo openvpn \
