@@ -24,6 +24,12 @@ jobs:
             echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
       - run:
+          name: Install System Dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-0 libgbm-dev libnss3 libasound2
+
+      - run:
           name: VPN Setup & Connect
           background: true
           command: |
@@ -70,18 +76,12 @@ jobs:
               printf "\nConnected to VPN\n"
               printf "Public IP is now: %s\n" "$(curl -s http://checkip.amazonaws.com)"
             fi
-            
+    
       - run:
-          name: Install Cypress System Dependencies
+          name: Install Project Dependencies
           command: |
-            sudo apt-get update
-            sudo apt-get install -y \
-              libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 \
-              libnss3 libxss1 libasound2 libxtst6 xauth xvfb
-      
-      - run:
-          name: Install Dependencies
-          command: npm install  # lub yarn install
+            npm install
+            npx cypress install
 
       - run:
           name: Run Cypress Tests
