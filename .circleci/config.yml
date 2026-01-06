@@ -47,9 +47,11 @@ jobs:
           name: Connect to VPN
           background: true
           command: |
-            echo "Starting VPN session..."
-            sudo launchctl load /Library/LaunchDaemons/org.openvpn.plist
-            sudo launchctl start org.openvpn
+            echo "Starting VPN session on Ubuntu..."
+            # Używamy bezpośrednio openvpn z flagą --daemon
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
+              --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
+              --dev tun
 
 
       - run:
