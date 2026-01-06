@@ -5,9 +5,9 @@ workflows:
       - build
 jobs:
   build:
-    macos:
-      xcode: "13.2.1"
-      resource_class: macos.x86.medium.gen2
+    machine:
+      image: ubuntu-2204:current
+    resource_class: medium
     steps:
       - run:
           name: Install OpenVPN
