@@ -5,100 +5,114 @@ workflows:
       - build
 jobs:
   build:
-    machine:
-      image: ubuntu-2004:202201-02
-      resource_class: medium
-
+    macos:
+      xcode: "13.2.1"
     steps:
       - run:
           name: Install OpenVPN
           command: |
-            export DEBIAN_FRONTEND=noninteractive
-            source ~/.bashrc
-            sudo apt update
-            sudo apt install openvpn openvpn-systemd-resolved
+            brew install openvpn
+            curl https://raw.githubusercontent.com/andrewgdotcom/openvpn-mac-dns/master/etc/openvpn/update-resolv-conf --output /tmp/update-resolv-conf
+            chmod +x /tmp/update-resolv-conf
 
       - run:
           name: Check IP before VPN connection
           command: |
-            ip a
             echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
       - run:
           name: VPN Setup
-          background: true
           command: |
-            echo $VPN_CLIENT_CONFIG | base64 --decode > /tmp/config.ovpn
+            echo $VPN_CLIENT_CONFIG | base64 --decode | tee /opt/homebrew/etc/openvpn/openvpn.conf 1>/dev/null
 
-            # Obsługa logowania (jeśli wymagane)
-            if grep -q auth-user-pass /tmp/config.ovpn; then
+            if grep auth-user-pass /opt/homebrew/etc/openvpn/openvpn.conf; then
               if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
                 echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
                 exit 1
               else
                 printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
+                sed -i config.bak 's|^auth-user-pass.*|auth-user-pass /tmp/vpn\.login|' /opt/homebrew/etc/openvpn/openvpn.conf
               fi
             fi
 
-            # GŁÓWNA ZMIANA: Dodano --data-ciphers dla obsługi AES-128-CBC
-            vpn_command=(sudo openvpn
-              --config /tmp/config.ovpn
-              --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC
-              --route 169.254.0.0 255.255.0.0 net_gateway
-              --script-security 2
-              --up /etc/openvpn/update-systemd-resolved --up-restart
-              --down /etc/openvpn/update-systemd-resolved --down-pre
-              --dhcp-option DOMAIN-ROUTE .)
+            touch /tmp/openvpn.log
+            phone_home="$(ifconfig | grep 'inet ' | awk '{print $2}' | grep -v '127.0.0.1' | awk '{ split($1, a, "."); print a[1] "." a[2] "." a[3] "." a[4] }')"
+            echo -e "\nroute $phone_home 255.255.255.255 net_gateway" | tee -a /opt/homebrew/etc/openvpn/openvpn.conf
+            echo $phone_home
 
-            if grep -q auth-user-pass /tmp/config.ovpn; then
-              vpn_command+=(--auth-user-pass /tmp/vpn.login)
-            fi
+            cat \<< EOF | sudo tee /Library/LaunchDaemons/org.openvpn.plist 1>/dev/null
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+              <dict>
+                <key>Label</key>
+                <string>org.openvpn</string>
+                <key>Program</key>
+                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
+                <key>ProgramArguments</key>
+                <array>
+                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
+                  <string>--config</string>
+                  <string>/opt/homebrew/etc/openvpn/openvpn.conf</string>
+                  <string>--route</string>
+                  <string>169.254.0.0 255.255.0.0 net_gateway</string>
+                  <string>--script-security</string>
+                  <string>2</string>
+                  <string>--up</string>
+                  <string>/tmp/update-resolv-conf</string>
+                  <string>--down</string>
+                  <string>/tmp/update-resolv-conf</string>
+                </array>
+                <key>RunAtLoad</key>
+                  <false/>
+                <key>TimeOut</key>
+                  <integer>90</integer>
+                <key>StandardErrorPath</key>
+                  <string>/tmp/openvpn.log</string>
+                <key>StandardOutPath</key>
+                  <string>/tmp/openvpn.log</string>
+                <key>KeepAlive</key>
+                  <false/>
+              </dict>
+            </plist>
+            EOF
 
-            # Ochrona połączenia SSH
-            ET_phone_home=$(ss -Hnto state established '( sport = :ssh )' | head -n1 | awk '{ split($4, a, ":"); print a[1] }')
-            if [ -n "$ET_phone_home" ]; then
-              vpn_command+=(--route $ET_phone_home 255.255.255.255 net_gateway)
-            fi
-
-            # Ochrona połączenia z CircleCI (Split Tunneling)
-            for IP in $(host runner.circleci.com | awk '{ print $4; }')
-              do
-                vpn_command+=(--route $IP 255.255.255.255 net_gateway)
-            done
-
-            # Ochrona DNS
-            for SYS_RES_DNS in $(systemd-resolve --status | grep 'DNS Servers'|awk '{print $3}')
-              do
-                vpn_command+=(--route $SYS_RES_DNS 255.255.255.255 net_gateway)
-            done
-
-            # Uruchomienie i logowanie
-            "${vpn_command[@]}" > /tmp/openvpn.log
       - run:
-          name: Wait for the connection to be established and check IP
+          name: Connect to VPN
+          background: true
           command: |
+            echo "Starting VPN session..."
+            sudo launchctl load /Library/LaunchDaemons/org.openvpn.plist
+            sudo launchctl start org.openvpn
+
+
+      - run:
+          name: Wait for VPN
+          command: |
+            printf "Attempting to connect to VPN server...\n\n"
+
             counter=1
-            until [ -f /tmp/openvpn.log ] && [ "$(grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 5 ]; do
+            until [ -f /tmp/openvpn.log ] && [ "$(grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 10 ]; do
               ((counter++))
-              echo "Attempting to connect to VPN server..."
-              sleep 1;
+
+              sleep 5
             done
 
             if [ ! -f /tmp/openvpn.log ] || (! grep -iq "Initialization Sequence Completed" /tmp/openvpn.log); then
-              printf "\nUnable to establish connection within the allocated time ---> Giving up.\n"
+              printf "Unable to establish connection within the allocated time ---> Giving up."
             else
-              printf "\nVPN connected\n"
-              printf "\nPublic IP is now %s\n" "$(curl -s http://checkip.amazonaws.com)"
+              printf "Connected to VPN\nPublic IP is now %s" "$(curl -s http://checkip.amazonaws.com)"
             fi
 
       - run:
-          name: Run commands in our infrastructure
+          name: Run Steps
           command: |
-            # A command
-            # Another command
-
+            echo "Run steps here"
+            sleep 10
       - run:
           name: Disconnect from OpenVPN
-          command: |
-            sudo killall openvpn || true
+          command: sudo launchctl stop org.openvpn
           when: always
+      - store_artifacts:
+          path: /tmp/openvpn.log
+ 
