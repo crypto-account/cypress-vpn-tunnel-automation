@@ -25,59 +25,23 @@ jobs:
       - run:
           name: VPN Setup
           command: |
-            echo $VPN_CLIENT_CONFIG | base64 --decode | tee /opt/homebrew/etc/openvpn/openvpn.conf 1>/dev/null
+            # Tworzymy folder, jeśli go nie ma (na wszelki wypadek)
+            sudo mkdir -p /etc/openvpn
 
-            if grep auth-user-pass /opt/homebrew/etc/openvpn/openvpn.conf; then
+            # Dekodujemy plik do katalogu /tmp (bezpieczna lokalizacja na Ubuntu)
+            echo $VPN_CLIENT_CONFIG | base64 --decode | sudo tee /tmp/config.ovpn > /dev/null
+
+            # Sprawdzamy czy wymagane jest hasło
+            if grep -q auth-user-pass /tmp/config.ovpn; then
               if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
-                echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
+                echo "BŁĄD: Ustaw zmienne VPN_USER i VPN_PASSWORD!"
                 exit 1
               else
                 printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
-                sed -i config.bak 's|^auth-user-pass.*|auth-user-pass /tmp/vpn\.login|' /opt/homebrew/etc/openvpn/openvpn.conf
+                # Poprawiamy ścieżkę do pliku z hasłem wewnątrz konfiguracji
+                sudo sed -i 's|^auth-user-pass.*|auth-user-pass /tmp/vpn.login|' /tmp/config.ovpn
               fi
             fi
-
-            touch /tmp/openvpn.log
-            phone_home="$(ifconfig | grep 'inet ' | awk '{print $2}' | grep -v '127.0.0.1' | awk '{ split($1, a, "."); print a[1] "." a[2] "." a[3] "." a[4] }')"
-            echo -e "\nroute $phone_home 255.255.255.255 net_gateway" | tee -a /opt/homebrew/etc/openvpn/openvpn.conf
-            echo $phone_home
-
-            cat \<< EOF | sudo tee /Library/LaunchDaemons/org.openvpn.plist 1>/dev/null
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-              <dict>
-                <key>Label</key>
-                <string>org.openvpn</string>
-                <key>Program</key>
-                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
-                <key>ProgramArguments</key>
-                <array>
-                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
-                  <string>--config</string>
-                  <string>/opt/homebrew/etc/openvpn/openvpn.conf</string>
-                  <string>--route</string>
-                  <string>169.254.0.0 255.255.0.0 net_gateway</string>
-                  <string>--script-security</string>
-                  <string>2</string>
-                  <string>--up</string>
-                  <string>/tmp/update-resolv-conf</string>
-                  <string>--down</string>
-                  <string>/tmp/update-resolv-conf</string>
-                </array>
-                <key>RunAtLoad</key>
-                  <false/>
-                <key>TimeOut</key>
-                  <integer>90</integer>
-                <key>StandardErrorPath</key>
-                  <string>/tmp/openvpn.log</string>
-                <key>StandardOutPath</key>
-                  <string>/tmp/openvpn.log</string>
-                <key>KeepAlive</key>
-                  <false/>
-              </dict>
-            </plist>
-            EOF
 
       - run:
           name: Connect to VPN
