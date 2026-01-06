@@ -77,7 +77,9 @@ jobs:
             sleep 10
       - run:
           name: Disconnect from OpenVPN
-          command: sudo launchctl stop org.openvpn
+          command: |
+            # Zatrzymuje wszystkie procesy openvpn
+            sudo killall openvpn || true
           when: always
       - store_artifacts:
           path: /tmp/openvpn.log
