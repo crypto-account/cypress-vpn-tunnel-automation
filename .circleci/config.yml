@@ -6,7 +6,9 @@ workflows:
 jobs:
   build:
     machine:
-      image: ubuntu-2004:202201-02
+      image: ubuntu-2004:202201-02  # To jest system (obraz)
+    resource_class: medium
+
     steps:
       - run:
           name: Install OpenVPN
