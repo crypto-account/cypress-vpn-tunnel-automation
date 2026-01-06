@@ -23,35 +23,27 @@ jobs:
             echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
       - run:
-          name: VPN Setup
-          command: |
-            # Tworzymy folder, jeśli go nie ma (na wszelki wypadek)
-            sudo mkdir -p /etc/openvpn
-
-            # Dekodujemy plik do katalogu /tmp (bezpieczna lokalizacja na Ubuntu)
-            echo $VPN_CLIENT_CONFIG | base64 --decode | sudo tee /tmp/config.ovpn > /dev/null
-
-            # Sprawdzamy czy wymagane jest hasło
-            if grep -q auth-user-pass /tmp/config.ovpn; then
-              if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
-                echo "BŁĄD: Ustaw zmienne VPN_USER i VPN_PASSWORD!"
-                exit 1
-              else
-                printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
-                # Poprawiamy ścieżkę do pliku z hasłem wewnątrz konfiguracji
-                sudo sed -i 's|^auth-user-pass.*|auth-user-pass /tmp/vpn.login|' /tmp/config.ovpn
-              fi
-            fi
-
-      - run:
-          name: Connect to VPN
+          name: VPN Setup & Connect
           background: true
           command: |
-            echo "Starting VPN session on Ubuntu..."
-            # Używamy bezpośrednio openvpn z flagą --daemon
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
+            # 1. Dekodowanie konfiguracji
+            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
+
+            # 2. Dynamiczne wykluczenie IP CircleCI (Split Tunneling), aby nie zerwać builda
+            # To zapobiega błędom sieciowym podczas startu
+            for IP in $(host runner.circleci.com | awk '{ print $4; }'); do
+              echo "route $IP 255.255.255.255 net_gateway" >> /tmp/config.ovpn
+            done
+
+            # 3. Uruchomienie VPN
+            # Dodajemy --dev tun, aby wymusić sterownik sieciowy Linuxa
+            sudo openvpn \
+              --config /tmp/config.ovpn \
+              --daemon \
+              --log /tmp/openvpn.log \
+              --dev tun \
               --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
-              --dev tun
+              --script-security 2
 
 
       - run:
