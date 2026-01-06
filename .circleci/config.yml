@@ -12,9 +12,10 @@ jobs:
       - run:
           name: Install OpenVPN
           command: |
+            # Wymuszamy brak pytań podczas instalacji
+            export DEBIAN_FRONTEND=noninteractive
             sudo apt-get update
-            # Używamy apt-get zamiast brew
-            sudo apt-get install -y openvpn openvpn-systemd-resolved
+            sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" openvpn openvpn-systemd-resolved
 
       - run:
           name: Check IP before VPN connection
