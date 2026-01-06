@@ -23,33 +23,29 @@ jobs:
       - run:
           name: Connect to VPN Gate
           command: |
-            # 1. Decode the config
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
+            
+            # Startujemy VPN
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
+              --script-security 2 \
+              --up /etc/openvpn/update-systemd-resolved \
+              --down /etc/openvpn/update-systemd-resolved \
+              --down-pre
 
-            # 2. VPN Gate usually uses 'vpn' as both user and password
-            # Some servers don't need this, but it doesn't hurt to have it ready
-            printf "vpn\nvpn" > /tmp/vpn.login
+            # KLUCZOWY KROK: Nadanie uprawnień do pliku logów
+            sudo chmod 644 /tmp/openvpn.log
 
-            # 3. Start OpenVPN in the background
-            # We use --auth-user-pass only if the config file asks for it
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log --auth-user-pass /tmp/vpn.login
-
-            # 4. Wait for connection (Timeout after 45s)
+            # Teraz grep zadziała bez "Permission denied"
             echo "Waiting for connection..."
-            for i in {1..22}; do
-              if grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-                echo "VPN Connected!"
-                break
-              fi
-              echo "Still waiting..."
-              sleep 2
-            done
-
-            if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-              echo "Failed to connect to VPN Gate server."
+            timeout 45s bash -c 'until grep -q "Initialization Sequence Completed" /tmp/openvpn.log; do sleep 2; done'
+            
+            if [ $? -ne 0 ]; then
+              echo "VPN failed! Log content:"
               cat /tmp/openvpn.log
               exit 1
             fi
+
+            echo "VPN Connected! Current IP: $(curl -s https://checkip.amazonaws.com)"
 
       - run:
           name: Verify IP and Location
