@@ -24,12 +24,6 @@ jobs:
             echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
       - run:
-          name: Install System Dependencies
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y libgtk-3-0 libgbm-dev libnss3 libasound2
-
-      - run:
           name: VPN Setup & Connect
           background: true
           command: |
@@ -78,10 +72,9 @@ jobs:
             fi
     
       - run:
-          name: Install Project Dependencies
+          name: Run Cypress via Docker
           command: |
-            npm install
-            npx cypress install
+            docker run --network host -v $PWD:/e2e -w /e2e cypress/included:13.0.0
 
       - run:
           name: Run Cypress Tests
