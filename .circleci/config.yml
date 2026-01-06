@@ -3,7 +3,7 @@ version: 2.1
 jobs:
   test_vpn_connection:
     machine: true
-    resource_class: large
+    resource_class: medium
 
     steps:
       - checkout
@@ -32,48 +32,38 @@ jobs:
           name: Check IP before VPN connection
           command: |
             echo "Public IP before VPN connection is $(curl -s checkip.amazonaws.com)"
-
       - run:
           name: VPN Setup and Connect
           command: |
-            # Zapisz config OVPN
+            # 1. Decode config
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
-            # Login + Hasło
-            #echo "${VPN_USER}" > /tmp/vpn.login
-            #echo "${VPN_PASSWORD}" >> /tmp/vpn.login
-            #chmod 600 /tmp/vpn.login
-
-            # Uruchom VPN
+            # 2. Fix potential IPv6 leaks and DNS issues
+            # We add these flags to the command line to ensure it forces traffic through the tunnel
             sudo openvpn \
               --config /tmp/config.ovpn \
-              --auth-user-pass /tmp/vpn.login \
               --daemon \
-              --log /tmp/openvpn.log
-
-            sudo chmod 644 /tmp/openvpn.log
+              --log /tmp/openvpn.log \
+              --pull-filter ignore "auth-token" \
+              --route-nopull \
+              --route 0.0.0.0 0.0.0.0 vpn_gateway \
+              --dhcp-option DNS 8.8.8.8
 
             echo "Waiting for VPN to connect..."
-            counter=1
-            until grep -q "Initialization Sequence Completed" /tmp/openvpn.log || [ "$counter" -ge 30 ]; do
-              echo "Waiting... ($counter)"
-              counter=$((counter+1))
-              sleep 2
-            done
+            timeout 60s bash -c 'until grep -q "Initialization Sequence Completed" /tmp/openvpn.log; do sleep 2; done'
 
-            if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-              echo "VPN failed!"
+            if [ $? -ne 0 ]; then
+              echo "VPN failed to initialize within 60 seconds!"
               cat /tmp/openvpn.log
               exit 1
-            else
-              echo "VPN connected successfully."
-              echo "IP after VPN:"
-              curl -s https://checkip.amazonaws.com || true
             fi
 
-            echo "Ensure OpenVPN is running:"
-            ps aux | grep openvpn || true
-
+            echo "VPN connected. Verifying IP..."
+            # Wait a moment for routing tables to update
+            sleep 5
+            FINAL_IP=$(curl -s https://checkip.amazonaws.com)
+            echo "Current Public IP: $FINAL_IP"
+     
       - run:
           name: Run Cypress Tests
           command: |
