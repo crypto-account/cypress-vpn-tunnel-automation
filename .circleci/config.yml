@@ -6,16 +6,16 @@ jobs:
       image: ubuntu-2204:2023.10.1  # Better stability for OpenVPN 2.5+
     steps:
       - checkout
-      
+  
       - run:
-          name: Install OpenVPN (Fixed)
+          name: Install OpenVPN and Fix Repositories
           command: |
-            # Zapobiega blokowaniu apt przez inne procesy w tle
-            sudo needle="Needle" # (opcjonalne, dla czytelności logów)
-            
-            # Kluczowe: DEBIAN_FRONTEND=noninteractive zapobiega interaktywnym restartom
+            # 1. Naprawa kluczy Google Chrome (inaczej apt-get update zwróci błąd)
+            curl -fSsL https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor | sudo tee /usr/share/keyrings/google-chrome.gpg > /dev/null
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+
+            # 2. Instalacja OpenVPN
             export DEBIAN_FRONTEND=noninteractive
-            
             sudo apt-get update
             sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" openvpn openvpn-systemd-resolved
 
