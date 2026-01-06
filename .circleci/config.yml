@@ -29,14 +29,16 @@ jobs:
             # 1. Dekodowanie konfiguracji
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
-            # 2. Dynamiczne wykluczenie IP CircleCI (Split Tunneling), aby nie zerwać builda
-            # To zapobiega błędom sieciowym podczas startu
+            # 2. Przygotowanie pliku logów z odpowiednimi uprawnieniami
+            sudo touch /tmp/openvpn.log
+            sudo chmod 666 /tmp/openvpn.log
+
+            # 3. Dynamiczne wykluczenie IP CircleCI (Split Tunneling)
             for IP in $(host runner.circleci.com | awk '{ print $4; }'); do
               echo "route $IP 255.255.255.255 net_gateway" >> /tmp/config.ovpn
             done
 
-            # 3. Uruchomienie VPN
-            # Dodajemy --dev tun, aby wymusić sterownik sieciowy Linuxa
+            # 4. Uruchomienie VPN
             sudo openvpn \
               --config /tmp/config.ovpn \
               --daemon \
@@ -45,25 +47,29 @@ jobs:
               --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
               --script-security 2
 
-
       - run:
           name: Wait for VPN
           command: |
             printf "Attempting to connect to VPN server...\n\n"
 
             counter=1
-            until [ -f /tmp/openvpn.log ] && [ "$(grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 10 ]; do
+            # Używamy sudo grep, aby mieć pewność dostępu do logów roota
+            until [ -f /tmp/openvpn.log ] && [ "$(sudo grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 12 ]; do
+              echo "Waiting for connection... (Attempt $counter/12)"
               ((counter++))
-
               sleep 5
             done
 
-            if [ ! -f /tmp/openvpn.log ] || (! grep -iq "Initialization Sequence Completed" /tmp/openvpn.log); then
-              printf "Unable to establish connection within the allocated time ---> Giving up."
+            if ! sudo grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+              printf "\nUnable to establish connection within the allocated time.\n"
+              printf "--- LAST 20 LINES OF LOG ---\n"
+              sudo tail -n 20 /tmp/openvpn.log
+              exit 1
             else
-              printf "Connected to VPN\nPublic IP is now %s" "$(curl -s http://checkip.amazonaws.com)"
+              printf "\nConnected to VPN\n"
+              printf "Public IP is now: %s\n" "$(curl -s http://checkip.amazonaws.com)"
             fi
-
+      
       - run:
           name: Run Steps
           command: |
