@@ -7,14 +7,22 @@ jobs:
   build:
     machine:
       image: ubuntu-2204:current
-    resource_class: medium
+      resource_class: medium
+
     steps:
+      - checkout
+
+      - run:
+          name: Download Cypress Image (Before VPN)
+          command: docker pull cypress/included:13.0.0  
+
       - run:
           name: Install OpenVPN
           command: |
+            # Wymuszamy brak pytań podczas instalacji
+            export DEBIAN_FRONTEND=noninteractive
             sudo apt-get update
-            # Używamy apt-get zamiast brew
-            sudo apt-get install -y openvpn openvpn-systemd-resolved
+            sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" openvpn openvpn-systemd-resolved
 
       - run:
           name: Check IP before VPN connection
@@ -22,70 +30,29 @@ jobs:
             echo "Public IP before VPN connection is $(curl checkip.amazonaws.com)"
 
       - run:
-          name: VPN Setup
-          command: |
-            echo $VPN_CLIENT_CONFIG | base64 --decode | tee /opt/homebrew/etc/openvpn/openvpn.conf 1>/dev/null
-
-            if grep auth-user-pass /opt/homebrew/etc/openvpn/openvpn.conf; then
-              if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
-                echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
-                exit 1
-              else
-                printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
-                sed -i config.bak 's|^auth-user-pass.*|auth-user-pass /tmp/vpn\.login|' /opt/homebrew/etc/openvpn/openvpn.conf
-              fi
-            fi
-
-            touch /tmp/openvpn.log
-            phone_home="$(ifconfig | grep 'inet ' | awk '{print $2}' | grep -v '127.0.0.1' | awk '{ split($1, a, "."); print a[1] "." a[2] "." a[3] "." a[4] }')"
-            echo -e "\nroute $phone_home 255.255.255.255 net_gateway" | tee -a /opt/homebrew/etc/openvpn/openvpn.conf
-            echo $phone_home
-
-            cat \<< EOF | sudo tee /Library/LaunchDaemons/org.openvpn.plist 1>/dev/null
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-              <dict>
-                <key>Label</key>
-                <string>org.openvpn</string>
-                <key>Program</key>
-                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
-                <key>ProgramArguments</key>
-                <array>
-                  <string>/opt/homebrew/opt/openvpn/sbin/openvpn</string>
-                  <string>--config</string>
-                  <string>/opt/homebrew/etc/openvpn/openvpn.conf</string>
-                  <string>--route</string>
-                  <string>169.254.0.0 255.255.0.0 net_gateway</string>
-                  <string>--script-security</string>
-                  <string>2</string>
-                  <string>--up</string>
-                  <string>/tmp/update-resolv-conf</string>
-                  <string>--down</string>
-                  <string>/tmp/update-resolv-conf</string>
-                </array>
-                <key>RunAtLoad</key>
-                  <false/>
-                <key>TimeOut</key>
-                  <integer>90</integer>
-                <key>StandardErrorPath</key>
-                  <string>/tmp/openvpn.log</string>
-                <key>StandardOutPath</key>
-                  <string>/tmp/openvpn.log</string>
-                <key>KeepAlive</key>
-                  <false/>
-              </dict>
-            </plist>
-            EOF
-
-      - run:
-          name: Connect to VPN
+          name: VPN Setup & Connect
           background: true
           command: |
-            echo "Starting VPN session..."
-            sudo launchctl load /Library/LaunchDaemons/org.openvpn.plist
-            sudo launchctl start org.openvpn
+            # 1. Dekodowanie konfiguracji
+            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
+            # 2. Przygotowanie pliku logów z odpowiednimi uprawnieniami
+            sudo touch /tmp/openvpn.log
+            sudo chmod 666 /tmp/openvpn.log
+
+            # 3. Dynamiczne wykluczenie IP CircleCI (Split Tunneling)
+            for IP in $(host runner.circleci.com | awk '{ print $4; }'); do
+              echo "route $IP 255.255.255.255 net_gateway" >> /tmp/config.ovpn
+            done
+
+            # 4. Uruchomienie VPN
+            sudo openvpn \
+              --config /tmp/config.ovpn \
+              --daemon \
+              --log /tmp/openvpn.log \
+              --dev tun \
+              --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
+              --script-security 2
 
       - run:
           name: Wait for VPN
@@ -93,17 +60,32 @@ jobs:
             printf "Attempting to connect to VPN server...\n\n"
 
             counter=1
-            until [ -f /tmp/openvpn.log ] && [ "$(grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 10 ]; do
+            # Używamy sudo grep, aby mieć pewność dostępu do logów roota
+            until [ -f /tmp/openvpn.log ] && [ "$(sudo grep -c "Initialization Sequence Completed" /tmp/openvpn.log)" != 0 ] || [ "$counter" -ge 12 ]; do
+              echo "Waiting for connection... (Attempt $counter/12)"
               ((counter++))
-
               sleep 5
             done
 
-            if [ ! -f /tmp/openvpn.log ] || (! grep -iq "Initialization Sequence Completed" /tmp/openvpn.log); then
-              printf "Unable to establish connection within the allocated time ---> Giving up."
+            if ! sudo grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+              printf "\nUnable to establish connection within the allocated time.\n"
+              printf "--- LAST 20 LINES OF LOG ---\n"
+              sudo tail -n 20 /tmp/openvpn.log
+              exit 1
             else
-              printf "Connected to VPN\nPublic IP is now %s" "$(curl -s http://checkip.amazonaws.com)"
+              printf "\nConnected to VPN\n"
+              printf "Public IP is now: %s\n" "$(curl -s http://checkip.amazonaws.com)"
             fi
+
+      - run:
+          name: Run Tests
+          command: |
+            # Flaga --pull never gwarantuje, że Docker nawet nie spróbuje 
+            # łączyć się z internetem w celu sprawdzenia aktualizacji obrazu
+            docker run --pull never --network host \
+              -v $PWD:/e2e -w /e2e \
+              -e DISPLAY=:99 \
+              cypress/included:13.0.0 --browser chrome
 
       - run:
           name: Run Steps
@@ -112,7 +94,9 @@ jobs:
             sleep 10
       - run:
           name: Disconnect from OpenVPN
-          command: sudo launchctl stop org.openvpn
+          command: |
+            # Zatrzymuje wszystkie procesy openvpn
+            sudo killall openvpn || true
           when: always
       - store_artifacts:
           path: /tmp/openvpn.log
