@@ -12,9 +12,9 @@ jobs:
       - run:
           name: Install OpenVPN
           command: |
-            brew install openvpn
-            curl https://raw.githubusercontent.com/andrewgdotcom/openvpn-mac-dns/master/etc/openvpn/update-resolv-conf --output /tmp/update-resolv-conf
-            chmod +x /tmp/update-resolv-conf
+            sudo apt-get update
+            # Używamy apt-get zamiast brew
+            sudo apt-get install -y openvpn openvpn-systemd-resolved
 
       - run:
           name: Check IP before VPN connection
