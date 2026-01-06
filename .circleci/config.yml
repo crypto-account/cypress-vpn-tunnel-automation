@@ -7,18 +7,10 @@ jobs:
   build:
     machine:
       image: ubuntu-2204:current
-    resource_class: medium
+      resource_class: medium
+
     steps:
       - checkout  
-
-      - run:
-          name: Run Cypress via Docker
-          command: |
-            docker run --network host \
-              -v $PWD:/e2e \
-              -w /e2e \
-              -e DISPLAY=:99 \
-              cypress/included:13.0.0 --browser chrome
 
       - run:
           name: Install OpenVPN
@@ -80,6 +72,15 @@ jobs:
               printf "\nConnected to VPN\n"
               printf "Public IP is now: %s\n" "$(curl -s http://checkip.amazonaws.com)"
             fi
+
+      - run:
+          name: Run Cypress via Docker
+          command: |
+            docker run --network host \
+              -v $PWD:/e2e \
+              -w /e2e \
+              -e DISPLAY=:99 \
+              cypress/included:13.0.0 --browser chrome
 
       - run:
           name: Run Cypress Tests
