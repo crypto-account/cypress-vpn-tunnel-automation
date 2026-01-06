@@ -27,6 +27,7 @@ jobs:
             
             # Startujemy VPN
             sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
+            --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
               --script-security 2 \
               --up /etc/openvpn/update-systemd-resolved \
               --down /etc/openvpn/update-systemd-resolved \
