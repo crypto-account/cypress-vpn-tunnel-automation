@@ -89,3 +89,13 @@ jobs:
           command: |
             ip addr show ppp0 || (echo "PPP0 not found" && exit 1)
             curl -s https://checkip.amazonaws.com
+        
+        # 2. Definicja tego, KIEDY ma się wydarzyć (TEGO BRAKOWAŁO)
+workflows:
+  version: 2
+  test_and_vpn:
+    jobs:
+      - vpn_l2tp_job:
+          filters:
+            branches:
+              only: main  # Uruchomi się tylko po pushu na branch main
