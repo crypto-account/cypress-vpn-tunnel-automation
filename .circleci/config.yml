@@ -6,7 +6,7 @@ workflows:
 jobs:
   build:
     machine:
-      image: ubuntu-2004:202201-02  # To jest system (obraz)
+      image: ubuntu-2004
     resource_class: medium
 
     steps:
