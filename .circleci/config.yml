@@ -9,6 +9,7 @@ jobs:
       image: ubuntu-2204:current
     resource_class: medium
     steps:
+      - checkout  # <-- TO JEST KLUCZOWE
       - run:
           name: Install OpenVPN
           command: |
