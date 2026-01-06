@@ -1,61 +1,50 @@
-version: 2.1
-
-jobs:
-  test_with_vpn:
-    machine:
-      image: ubuntu-2204:current
-    steps:
-      - checkout
-
-      - run:
-          name: Install OpenVPN
+- run:
+          name: VPN Setup
+          background: true
           command: |
-            sudo apt-get update
-            sudo apt-get install -y openvpn openvpn-systemd-resolved
+            echo $VPN_CLIENT_CONFIG | base64 --decode > /tmp/config.ovpn
 
-      - run:
-          name: Setup and Connect VPN
-          command: |
-            # 1. Dekodowanie konfiguracji
-            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
-
-            # 2. Uruchomienie OpenVPN
-            # Dodajemy --data-ciphers AES-128-CBC, bo Twój plik używa starego szyfru, 
-            # który nowa wersja OpenVPN w Ubuntu 22.04 domyślnie blokuje.
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
-              --data-ciphers AES-128-CBC:AES-256-GCM:AES-128-GCM \
-              --script-security 2 \
-              --up /etc/openvpn/update-systemd-resolved \
-              --down /etc/openvpn/update-systemd-resolved \
-              --down-pre
-
-            # 3. Nadanie uprawnień do logów, aby móc je sprawdzić
-            sudo chmod 644 /tmp/openvpn.log
-
-            # 4. Czekanie na połączenie (timeout 45 sek)
-            echo "Waiting for VPN connection..."
-            timeout 45s bash -c 'until grep -q "Initialization Sequence Completed" /tmp/openvpn.log; do sleep 2; done'
-            
-            if [ $? -ne 0 ]; then
-              echo "VPN Connection Failed!"
-              cat /tmp/openvpn.log
-              exit 1
+            # Obsługa logowania (jeśli wymagane)
+            if grep -q auth-user-pass /tmp/config.ovpn; then
+              if [ -z "${VPN_USER:-}" ] || [ -z "${VPN_PASSWORD:-}" ]; then
+                echo "Your VPN client is configured with a user-locked profile. Make sure to set the VPN_USER and VPN_PASSWORD environment variables"
+                exit 1
+              else
+                printf "$VPN_USER\\n$VPN_PASSWORD" > /tmp/vpn.login
+              fi
             fi
-            echo "VPN Connected Successfully."
 
-      - run:
-          name: Verify IP Address
-          command: |
-            echo "Twój adres IP po połączeniu z VPN:"
-            curl -s https://checkip.amazonaws.com
+            # GŁÓWNA ZMIANA: Dodano --data-ciphers dla obsługi AES-128-CBC
+            vpn_command=(sudo openvpn
+              --config /tmp/config.ovpn
+              --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC
+              --route 169.254.0.0 255.255.0.0 net_gateway
+              --script-security 2
+              --up /etc/openvpn/update-systemd-resolved --up-restart
+              --down /etc/openvpn/update-systemd-resolved --down-pre
+              --dhcp-option DOMAIN-ROUTE .)
 
-      - run:
-          name: Run Tests
-          command: |
-            echo "Tutaj wstaw komendę do testów, np. npm test"
+            if grep -q auth-user-pass /tmp/config.ovpn; then
+              vpn_command+=(--auth-user-pass /tmp/vpn.login)
+            fi
 
-workflows:
-  version: 2
-  build_and_test:
-    jobs:
-      - test_with_vpn
+            # Ochrona połączenia SSH
+            ET_phone_home=$(ss -Hnto state established '( sport = :ssh )' | head -n1 | awk '{ split($4, a, ":"); print a[1] }')
+            if [ -n "$ET_phone_home" ]; then
+              vpn_command+=(--route $ET_phone_home 255.255.255.255 net_gateway)
+            fi
+
+            # Ochrona połączenia z CircleCI (Split Tunneling)
+            for IP in $(host runner.circleci.com | awk '{ print $4; }')
+              do
+                vpn_command+=(--route $IP 255.255.255.255 net_gateway)
+            done
+
+            # Ochrona DNS
+            for SYS_RES_DNS in $(systemd-resolve --status | grep 'DNS Servers'|awk '{print $3}')
+              do
+                vpn_command+=(--route $SYS_RES_DNS 255.255.255.255 net_gateway)
+            done
+
+            # Uruchomienie i logowanie
+            "${vpn_command[@]}" > /tmp/openvpn.log
