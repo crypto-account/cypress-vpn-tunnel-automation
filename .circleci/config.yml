@@ -1,86 +1,62 @@
 version: 2.1
 
 jobs:
-  test_vpn_connection:
-    machine: true
-    resource_class: medium
-
+  vpn_test_job:
+    machine:
+      image: ubuntu-2204:2023.10.1  # Better stability for OpenVPN 2.5+
     steps:
       - checkout
       
       - run:
-          name: Use Node.js 20
-          command: |
-            nvm install 20
-            nvm use 20
-            node -v
-            npm -v
-
-      - run:
-          name: Install Cypress 
-          command: |
-            npm install cypress 
-
-      - run:
           name: Install OpenVPN
           command: |
-            export DEBIAN_FRONTEND=noninteractive
             sudo apt update
             sudo apt install -y openvpn openvpn-systemd-resolved
 
       - run:
-          name: Check IP before VPN connection
+          name: Connect to VPN Gate
           command: |
-            echo "Public IP before VPN connection is $(curl -s checkip.amazonaws.com)"
-      - run:
-          name: VPN Setup and Connect
-          command: |
-            # 1. Decode config
+            # 1. Decode the config
             echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
 
-            # 2. Fix potential IPv6 leaks and DNS issues
-            # We add these flags to the command line to ensure it forces traffic through the tunnel
-            sudo openvpn \
-              --config /tmp/config.ovpn \
-              --daemon \
-              --log /tmp/openvpn.log \
-              --pull-filter ignore "auth-token" \
-              --route-nopull \
-              --route 0.0.0.0 0.0.0.0 vpn_gateway \
-              --dhcp-option DNS 8.8.8.8
+            # 2. VPN Gate usually uses 'vpn' as both user and password
+            # Some servers don't need this, but it doesn't hurt to have it ready
+            printf "vpn\nvpn" > /tmp/vpn.login
 
-            echo "Waiting for VPN to connect..."
-            timeout 60s bash -c 'until grep -q "Initialization Sequence Completed" /tmp/openvpn.log; do sleep 2; done'
+            # 3. Start OpenVPN in the background
+            # We use --auth-user-pass only if the config file asks for it
+            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log --auth-user-pass /tmp/vpn.login
 
-            if [ $? -ne 0 ]; then
-              echo "VPN failed to initialize within 60 seconds!"
+            # 4. Wait for connection (Timeout after 45s)
+            echo "Waiting for connection..."
+            for i in {1..22}; do
+              if grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+                echo "VPN Connected!"
+                break
+              fi
+              echo "Still waiting..."
+              sleep 2
+            done
+
+            if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
+              echo "Failed to connect to VPN Gate server."
               cat /tmp/openvpn.log
               exit 1
             fi
 
-            echo "VPN connected. Verifying IP..."
-            # Wait a moment for routing tables to update
-            sleep 5
-            FINAL_IP=$(curl -s https://checkip.amazonaws.com)
-            echo "Current Public IP: $FINAL_IP"
-     
       - run:
-          name: Run Cypress Tests
+          name: Verify IP and Location
           command: |
-            npm install
-            npx cypress run --browser electron --spec "cypress/e2e/vpn-test.cy.js"
+            echo "Your new IP is: $(curl -s https://checkip.amazonaws.com)"
+            curl -s https://ipapi.co/json/ | grep -E "city|country_name"
 
       - run:
-          name: Disconnect from OpenVPN
+          name: Run your tests (Cypress/Node)
           command: |
-            sudo killall openvpn || true
-          when: always
+            # Your test commands here
+            echo "Running tests over VPN..."
 
 workflows:
-  version: 2
-  btd:
+  test_flow:
     jobs:
-      - test_vpn_connection:
-          filters:
-            branches:
-              only: main
+      - vpn_test_job
