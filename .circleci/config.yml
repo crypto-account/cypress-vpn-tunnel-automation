@@ -1,62 +1,101 @@
 version: 2.1
 
 jobs:
-  vpn_test_job:
+  vpn_l2tp_job:
     machine:
-      image: ubuntu-2204:2023.10.1  # Better stability for OpenVPN 2.5+
+      image: ubuntu-2204:current
     steps:
       - checkout
       
       - run:
-          name: Install OpenVPN
+          name: Install L2TP/IPsec Clients
           command: |
-            sudo apt update
-            sudo apt install -y openvpn openvpn-systemd-resolved
+            sudo apt-get update
+            sudo apt-get install -y strongswan xl2tpd
 
       - run:
-          name: Connect to VPN Gate
+          name: Configure and Connect L2TP
           command: |
-            # 1. Decode the config
-            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
+            # 1. Konfiguracja IPsec (StrongSwan)
+            sudo tee /etc/ipsec.conf > /dev/null \<<EOF
+            config setup
+            conn myvpn
+              auto=add
+              keyexchange=ikev1
+              authby=secret
+              type=transport
+              left=%defaultroute
+              leftprotoport=17/1701
+              right=$VPN_SERVER
+              rightprotoport=17/1701
+            EOF
 
-            # 2. VPN Gate usually uses 'vpn' as both user and password
-            # Some servers don't need this, but it doesn't hurt to have it ready
-            printf "vpn\nvpn" > /tmp/vpn.login
+            # 2. Ustawienie PSK
+            sudo tee /etc/ipsec.secrets > /dev/null \<<EOF
+            : PSK "$VPN_PSK"
+            EOF
 
-            # 3. Start OpenVPN in the background
-            # We use --auth-user-pass only if the config file asks for it
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log --auth-user-pass /tmp/vpn.login
+            # 3. Konfiguracja xl2tpd
+            sudo tee /etc/xl2tpd/xl2tpd.conf > /dev/null \<<EOF
+            [lac myvpn]
+            lns = $VPN_SERVER
+            ppp debug = yes
+            pppoptfile = /etc/ppp/options.l2tpd.client
+            length bit = yes
+            EOF
 
-            # 4. Wait for connection (Timeout after 45s)
-            echo "Waiting for connection..."
-            for i in {1..22}; do
-              if grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-                echo "VPN Connected!"
+            # 4. Konfiguracja PPP
+            sudo tee /etc/ppp/options.l2tpd.client > /dev/null \<<EOF
+            ipcp-accept-local
+            ipcp-accept-remote
+            refuse-eap
+            require-mschap-v2
+            nocp
+            noauth
+            idle 1800
+            mtu 1410
+            mru 1410
+            defaultroute
+            usepeerdns
+            debug
+            lock
+            connect-delay 5000
+            name "$VPN_USER"
+            password "$VPN_PASSWORD"
+            EOF
+
+            # 5. Uruchomienie usług
+            sudo service strongswan-starter restart
+            sudo service xl2tpd restart
+            
+            # 6. Nawiązanie połączenia
+            sudo ipsec up myvpn
+            sudo echo "c myvpn" | sudo tee /var/run/xl2tpd/l2tp-control
+
+            # 7. Oczekiwanie na interfejs ppp0
+            echo "Waiting for ppp0 interface..."
+            for i in {1..30}; do
+              if ip addr show ppp0 > /dev/null 2>&1; then
+                echo "Connected!"
+                # Przekierowanie całego ruchu przez ppp0
+                sudo route add default dev ppp0
                 break
               fi
-              echo "Still waiting..."
               sleep 2
             done
 
-            if ! grep -q "Initialization Sequence Completed" /tmp/openvpn.log; then
-              echo "Failed to connect to VPN Gate server."
-              cat /tmp/openvpn.log
-              exit 1
-            fi
-
       - run:
-          name: Verify IP and Location
+          name: Verify Connection
           command: |
-            echo "Your new IP is: $(curl -s https://checkip.amazonaws.com)"
-            curl -s https://ipapi.co/json/ | grep -E "city|country_name"
-
-      - run:
-          name: Run your tests (Cypress/Node)
-          command: |
-            # Your test commands here
-            echo "Running tests over VPN..."
-
+            ip addr show ppp0 || (echo "PPP0 not found" && exit 1)
+            curl -s https://checkip.amazonaws.com
+        
+        # 2. Definicja tego, KIEDY ma się wydarzyć (TEGO BRAKOWAŁO)
 workflows:
-  test_flow:
+  version: 2
+  test_and_vpn:
     jobs:
-      - vpn_test_job
+      - vpn_l2tp_job:
+          filters:
+            branches:
+              only: main  # Uruchomi się tylko po pushu na branch main
