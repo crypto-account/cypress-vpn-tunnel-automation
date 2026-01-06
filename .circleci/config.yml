@@ -10,7 +10,11 @@ jobs:
       resource_class: medium
 
     steps:
-      - checkout  
+      - checkout
+
+      - run:
+          name: Download Cypress Image (Before VPN)
+          command: docker pull cypress/included:13.0.0  
 
       - run:
           name: Install OpenVPN
@@ -74,20 +78,14 @@ jobs:
             fi
 
       - run:
-          name: Run Cypress via Docker
+          name: Run Tests
           command: |
-            docker run --network host \
-              -v $PWD:/e2e \
-              -w /e2e \
+            # Flaga --pull never gwarantuje, że Docker nawet nie spróbuje 
+            # łączyć się z internetem w celu sprawdzenia aktualizacji obrazu
+            docker run --pull never --network host \
+              -v $PWD:/e2e -w /e2e \
               -e DISPLAY=:99 \
               cypress/included:13.0.0 --browser chrome
-
-      - run:
-          name: Run Cypress Tests
-          command: |
-            # Uruchamiamy Cypressa w trybie headless (bez okna)
-            # Podajemy ścieżkę do konkretnego pliku testowego, który stworzyliśmy
-            npx cypress run --spec "cypress/e2e/vpn_test.cy.js"
 
       - run:
           name: Run Steps
