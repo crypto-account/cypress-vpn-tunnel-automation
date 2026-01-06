@@ -1,66 +1,91 @@
 version: 2.1
 
 jobs:
-  vpn_test_job:
+  vpn_l2tp_job:
     machine:
-      image: ubuntu-2204:2023.10.1  # Better stability for OpenVPN 2.5+
+      image: ubuntu-2204:current
     steps:
       - checkout
-  
+      
       - run:
-          name: Install OpenVPN and Fix Repositories
+          name: Install L2TP/IPsec Clients
           command: |
-            # 1. Naprawa kluczy Google Chrome (inaczej apt-get update zwróci błąd)
-            curl -fSsL https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor | sudo tee /usr/share/keyrings/google-chrome.gpg > /dev/null
-            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-
-            # 2. Instalacja OpenVPN
-            export DEBIAN_FRONTEND=noninteractive
             sudo apt-get update
-            sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" openvpn openvpn-systemd-resolved
-
+            sudo apt-get install -y strongswan xl2tpd
 
       - run:
-          name: Connect to VPN Gate
+          name: Configure and Connect L2TP
           command: |
-            echo "$VPN_CLIENT_CONFIG" | base64 --decode > /tmp/config.ovpn
+            # 1. Konfiguracja IPsec (StrongSwan)
+            sudo tee /etc/ipsec.conf > /dev/null \<<EOF
+            config setup
+            conn myvpn
+              auto=add
+              keyexchange=ikev1
+              authby=secret
+              type=transport
+              left=%defaultroute
+              leftprotoport=17/1701
+              right=$VPN_SERVER
+              rightprotoport=17/1701
+            EOF
+
+            # 2. Ustawienie PSK
+            sudo tee /etc/ipsec.secrets > /dev/null \<<EOF
+            : PSK "$VPN_PSK"
+            EOF
+
+            # 3. Konfiguracja xl2tpd
+            sudo tee /etc/xl2tpd/xl2tpd.conf > /dev/null \<<EOF
+            [lac myvpn]
+            lns = $VPN_SERVER
+            ppp debug = yes
+            pppoptfile = /etc/ppp/options.l2tpd.client
+            length bit = yes
+            EOF
+
+            # 4. Konfiguracja PPP
+            sudo tee /etc/ppp/options.l2tpd.client > /dev/null \<<EOF
+            ipcp-accept-local
+            ipcp-accept-remote
+            refuse-eap
+            require-mschap-v2
+            nocp
+            noauth
+            idle 1800
+            mtu 1410
+            mru 1410
+            defaultroute
+            usepeerdns
+            debug
+            lock
+            connect-delay 5000
+            name "$VPN_USER"
+            password "$VPN_PASSWORD"
+            EOF
+
+            # 5. Uruchomienie usług
+            sudo service strongswan-starter restart
+            sudo service xl2tpd restart
             
-            # Startujemy VPN
-            sudo openvpn --config /tmp/config.ovpn --daemon --log /tmp/openvpn.log \
-            --data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC \
-              --script-security 2 \
-              --up /etc/openvpn/update-systemd-resolved \
-              --down /etc/openvpn/update-systemd-resolved \
-              --down-pre
+            # 6. Nawiązanie połączenia
+            sudo ipsec up myvpn
+            sudo echo "c myvpn" | sudo tee /var/run/xl2tpd/l2tp-control
 
-            # KLUCZOWY KROK: Nadanie uprawnień do pliku logów
-            sudo chmod 644 /tmp/openvpn.log
-
-            # Teraz grep zadziała bez "Permission denied"
-            echo "Waiting for connection..."
-            timeout 45s bash -c 'until grep -q "Initialization Sequence Completed" /tmp/openvpn.log; do sleep 2; done'
-            
-            if [ $? -ne 0 ]; then
-              echo "VPN failed! Log content:"
-              cat /tmp/openvpn.log
-              exit 1
-            fi
-
-            echo "VPN Connected! Current IP: $(curl -s https://checkip.amazonaws.com)"
+            # 7. Oczekiwanie na interfejs ppp0
+            echo "Waiting for ppp0 interface..."
+            for i in {1..30}; do
+              if ip addr show ppp0 > /dev/null 2>&1; then
+                echo "Connected!"
+                # Przekierowanie całego ruchu przez ppp0
+                sudo route add default dev ppp0
+                break
+              fi
+              sleep 2
+            done
 
       - run:
-          name: Verify IP and Location
+          name: Verify Connection
           command: |
-            echo "Your new IP is: $(curl -s https://checkip.amazonaws.com)"
-            curl -s https://ipapi.co/json/ | grep -E "city|country_name"
-
-      - run:
-          name: Run your tests (Cypress/Node)
-          command: |
-            # Your test commands here
-            echo "Running tests over VPN..."
-
-workflows:
-  test_flow:
-    jobs:
-      - vpn_test_job
+            ip addr show ppp0 || (echo "PPP0 not found" && exit 1)
+            curl -s https://checkip.amazonaws.com
