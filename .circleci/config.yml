@@ -14,7 +14,11 @@ jobs:
       - run:
           name: Run Cypress via Docker
           command: |
-            docker run --network host -v $PWD:/e2e -w /e2e cypress/included:13.0.0
+            docker run --network host \
+              -v $PWD:/e2e \
+              -w /e2e \
+              -e DISPLAY=:99 \
+              cypress/included:13.0.0 --browser chrome
 
       - run:
           name: Install OpenVPN
