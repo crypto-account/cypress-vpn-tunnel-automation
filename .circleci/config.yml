@@ -8,10 +8,17 @@ jobs:
       - checkout
       
       - run:
-          name: Install OpenVPN
+          name: Install OpenVPN (Fixed)
           command: |
-            sudo apt update
-            sudo apt install -y openvpn openvpn-systemd-resolved
+            # Zapobiega blokowaniu apt przez inne procesy w tle
+            sudo needle="Needle" # (opcjonalne, dla czytelności logów)
+            
+            # Kluczowe: DEBIAN_FRONTEND=noninteractive zapobiega interaktywnym restartom
+            export DEBIAN_FRONTEND=noninteractive
+            
+            sudo apt-get update
+            sudo apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" openvpn openvpn-systemd-resolved
+
 
       - run:
           name: Connect to VPN Gate
